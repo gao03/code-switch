@@ -350,7 +350,14 @@ func (prs *ProviderRelayService) forwardRequest(
 	reqBody := bytes.NewReader(bodyBytes)
 	req = req.SetBody(reqBody)
 
-	resp, err := req.Post(targetURL)
+	// 使用重试机制包装请求
+	resp, err := RetryableRequest(func() (*xrequest.Response, error) {
+		// 每次重试都需要重新创建 body reader，因为之前的可能已经被消费了
+		freshBody := bytes.NewReader(bodyBytes)
+		freshReq := req.SetBody(freshBody)
+		return freshReq.Post(targetURL)
+	}, provider.Name)
+
 	if err != nil {
 		return false, err
 	}
