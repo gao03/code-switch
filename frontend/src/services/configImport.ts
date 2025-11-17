@@ -2,6 +2,7 @@ import { Call } from '@wailsio/runtime'
 
 export type ConfigImportStatus = {
   config_exists: boolean
+  config_path: string
   pending_providers: boolean
   pending_mcp: boolean
   pending_provider_count: number
@@ -16,6 +17,7 @@ export type ConfigImportResult = {
 
 const emptyStatus: ConfigImportStatus = {
   config_exists: false,
+  config_path: '',
   pending_providers: false,
   pending_mcp: false,
   pending_provider_count: 0,
@@ -27,7 +29,19 @@ export const fetchConfigImportStatus = async (): Promise<ConfigImportStatus> => 
   return (response as ConfigImportStatus) ?? emptyStatus
 }
 
+export const fetchConfigImportStatusForFile = async (
+  path: string,
+): Promise<ConfigImportStatus> => {
+  const response = await Call.ByName('codeswitch/services.ImportService.GetStatusForFile', path)
+  return response as ConfigImportStatus
+}
+
 export const importFromCcSwitch = async (): Promise<ConfigImportResult> => {
   const response = await Call.ByName('codeswitch/services.ImportService.ImportAll')
+  return response as ConfigImportResult
+}
+
+export const importFromCustomFile = async (path: string): Promise<ConfigImportResult> => {
+  const response = await Call.ByName('codeswitch/services.ImportService.ImportFromFile', path)
   return response as ConfigImportResult
 }

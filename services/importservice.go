@@ -3,6 +3,7 @@ package services
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,11 +13,12 @@ import (
 )
 
 type ConfigImportStatus struct {
-	ConfigExists         bool `json:"config_exists"`
-	PendingProviders     bool `json:"pending_providers"`
-	PendingMCP           bool `json:"pending_mcp"`
-	PendingProviderCount int  `json:"pending_provider_count"`
-	PendingMCPCount      int  `json:"pending_mcp_count"`
+	ConfigExists         bool   `json:"config_exists"`
+	ConfigPath           string `json:"config_path"`
+	PendingProviders     bool   `json:"pending_providers"`
+	PendingMCP           bool   `json:"pending_mcp"`
+	PendingProviderCount int    `json:"pending_provider_count"`
+	PendingMCPCount      int    `json:"pending_mcp_count"`
 }
 
 type ConfigImportResult struct {
@@ -38,8 +40,12 @@ func (is *ImportService) Start() error { return nil }
 func (is *ImportService) Stop() error  { return nil }
 
 func (is *ImportService) GetStatus() (ConfigImportStatus, error) {
-	status := ConfigImportStatus{}
-	cfg, exists, err := loadCcSwitchConfig()
+	path, err := ccSwitchConfigPath()
+	if err != nil {
+		return ConfigImportStatus{}, err
+	}
+	status := ConfigImportStatus{ConfigPath: path}
+	cfg, exists, err := loadCcSwitchConfig(path)
 	if err != nil {
 		return status, err
 	}
@@ -47,18 +53,65 @@ func (is *ImportService) GetStatus() (ConfigImportStatus, error) {
 	if !exists || cfg == nil {
 		return status, nil
 	}
-	return is.evaluateStatus(cfg)
+	return is.evaluateStatus(cfg, path)
 }
 
 func (is *ImportService) ImportAll() (ConfigImportResult, error) {
-	result := ConfigImportResult{}
-	cfg, exists, err := loadCcSwitchConfig()
+	path, err := ccSwitchConfigPath()
 	if err != nil {
-		return result, err
+		return ConfigImportResult{}, err
 	}
-	result.Status.ConfigExists = exists
+	cfg, exists, err := loadCcSwitchConfig(path)
+	if err != nil {
+		return ConfigImportResult{}, err
+	}
 	if !exists || cfg == nil {
-		return result, nil
+		return ConfigImportResult{
+			Status: ConfigImportStatus{
+				ConfigExists: exists,
+				ConfigPath:   path,
+			},
+		}, nil
+	}
+	return is.processImport(cfg, path)
+}
+
+func (is *ImportService) ImportFromFile(path string) (ConfigImportResult, error) {
+	cleanPath := strings.TrimSpace(path)
+	if cleanPath == "" {
+		return ConfigImportResult{}, fmt.Errorf("config path is required")
+	}
+	cfg, exists, err := loadCcSwitchConfig(cleanPath)
+	if err != nil {
+		return ConfigImportResult{}, err
+	}
+	if !exists || cfg == nil {
+		return ConfigImportResult{}, fmt.Errorf("config file not found: %s", cleanPath)
+	}
+	return is.processImport(cfg, cleanPath)
+}
+
+func (is *ImportService) GetStatusForFile(path string) (ConfigImportStatus, error) {
+	cleanPath := strings.TrimSpace(path)
+	if cleanPath == "" {
+		return ConfigImportStatus{}, fmt.Errorf("config path is required")
+	}
+	cfg, exists, err := loadCcSwitchConfig(cleanPath)
+	if err != nil {
+		return ConfigImportStatus{}, err
+	}
+	if !exists || cfg == nil {
+		return ConfigImportStatus{}, fmt.Errorf("config file not found: %s", cleanPath)
+	}
+	return is.evaluateStatus(cfg, cleanPath)
+}
+
+func (is *ImportService) processImport(cfg *ccSwitchConfig, path string) (ConfigImportResult, error) {
+	result := ConfigImportResult{
+		Status: ConfigImportStatus{
+			ConfigExists: true,
+			ConfigPath:   path,
+		},
 	}
 	pendingProviders, err := is.pendingProviders(cfg)
 	if err != nil {
@@ -80,7 +133,7 @@ func (is *ImportService) ImportAll() (ConfigImportResult, error) {
 	}
 	result.ImportedMCP = addedServers
 
-	status, err := is.evaluateStatus(cfg)
+	status, err := is.evaluateStatus(cfg, path)
 	if err != nil {
 		return result, err
 	}
@@ -88,8 +141,8 @@ func (is *ImportService) ImportAll() (ConfigImportResult, error) {
 	return result, nil
 }
 
-func (is *ImportService) evaluateStatus(cfg *ccSwitchConfig) (ConfigImportStatus, error) {
-	status := ConfigImportStatus{ConfigExists: true}
+func (is *ImportService) evaluateStatus(cfg *ccSwitchConfig, configPath string) (ConfigImportStatus, error) {
+	status := ConfigImportStatus{ConfigExists: true, ConfigPath: configPath}
 	pendingProviders, err := is.pendingProviders(cfg)
 	if err != nil {
 		return status, err
@@ -107,11 +160,7 @@ func (is *ImportService) evaluateStatus(cfg *ccSwitchConfig) (ConfigImportStatus
 	return status, nil
 }
 
-func loadCcSwitchConfig() (*ccSwitchConfig, bool, error) {
-	path, err := ccSwitchConfigPath()
-	if err != nil {
-		return nil, false, err
-	}
+func loadCcSwitchConfig(path string) (*ccSwitchConfig, bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

@@ -1351,6 +1351,29 @@ html.dark .ghost-icon:hover {
   color: #fff;
 }
 
+.btn-ghost {
+  background: transparent;
+  color: var(--mac-text-secondary);
+  min-width: auto;
+  padding-inline: 14px;
+}
+
+.btn-ghost:hover,
+.btn-ghost:focus-visible {
+  color: var(--mac-text);
+  background: rgba(15, 23, 42, 0.06);
+}
+
+html.dark .btn-ghost {
+  color: var(--mac-text-secondary);
+}
+
+html.dark .btn-ghost:hover,
+html.dark .btn-ghost:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
 .switch-inline {
   display: inline-flex;
   align-items: center;

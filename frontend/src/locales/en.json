@@ -83,6 +83,7 @@
         "skill": "Open skill catalog",
         "import": "Import cc-switch config"
       },
+      "versionLabel": "Version {version}",
       "importConfig": {
         "tooltip": "Import {providers} providers · {servers} MCP servers",
         "success": "Imported {providers} providers and {servers} MCP servers",
@@ -231,6 +232,23 @@
         "authorized": "Auth",
         "go_authorized": "Auth now",
         "back": "Back to home"
+      },
+      "import": {
+        "label": "Import cc-switch data",
+        "path": "Config file: {path}",
+        "detail": "{providers} providers · {servers} MCP servers ready to import",
+        "synced": "All providers and MCP servers are already synced",
+        "cta": "Import now",
+        "syncedButton": "Up to date",
+        "importing": "Importing...",
+        "upload": "Upload JSON",
+        "uploadTitle": "Select cc-switch JSON file",
+        "confirm": "Confirm import",
+        "noFile": "No config file selected",
+        "loadError": "Failed to read selected config",
+        "clear": "Clear selection",
+        "reupload": "Upload another JSON",
+        "missingDefault": "No cc-switch config detected. Upload a JSON manually to import."
       }
     },
     "mcp": {

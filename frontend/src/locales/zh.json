@@ -84,6 +84,7 @@
         "skill": "打开 Skill 列表",
         "import": "导入 cc-switch 配置"
       },
+      "versionLabel": "版本 {version}",
       "importConfig": {
         "tooltip": "导入 {providers} 个供应商 · {servers} 个 MCP 服务器",
         "success": "已导入 {providers} 个供应商与 {servers} 个 MCP 服务器",
@@ -232,6 +233,23 @@
         "authorized": "已授权",
         "go_authorized": "去授权",
         "back": "返回首页"
+      },
+      "import": {
+        "label": "导入 cc-switch 配置",
+        "path": "配置文件：{path}",
+        "detail": "可导入 {providers} 个服务商 · {servers} 个 MCP 服务",
+        "synced": "当前服务商与 MCP 服务已同步",
+        "cta": "立即导入",
+        "syncedButton": "已同步",
+        "importing": "正在导入...",
+        "upload": "上传 JSON",
+        "uploadTitle": "选择自定义 cc-switch JSON 文件",
+        "confirm": "确认导入",
+        "noFile": "尚未选择配置文件",
+        "loadError": "读取配置文件失败",
+        "clear": "清除选择",
+        "reupload": "重新上传",
+        "missingDefault": "未检测到 cc-switch 配置文件，可手动上传 JSON 进行导入"
       }
     },
     "mcp": {

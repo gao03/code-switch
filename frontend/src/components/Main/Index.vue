@@ -45,40 +45,6 @@
         </svg>
       </button>
       <button
-        v-if="showImportButton"
-        class="ghost-icon"
-        :data-tooltip="importButtonTooltip"
-        :disabled="importBusy"
-        @click="handleImportClick"
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true" :class="{ rotating: importBusy }">
-          <path
-            d="M12 4v9"
-            stroke="currentColor"
-            stroke-width="1.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            fill="none"
-          />
-          <path
-            d="M8.5 10.5l3.5 3.5 3.5-3.5"
-            stroke="currentColor"
-            stroke-width="1.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            fill="none"
-          />
-          <path
-            d="M5 19h14"
-            stroke="currentColor"
-            stroke-width="1.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            fill="none"
-          />
-        </svg>
-      </button>
-      <button
         class="ghost-icon"
         :data-tooltip="t('components.main.controls.settings')"
         @click="goToSettings"
@@ -287,17 +253,17 @@
             <div class="card-text">
               <div class="card-title-row">
                 <p class="card-title">{{ card.name }}</p>
-                <span v-if="card.level" class="level-badge" :class="`level-${card.level}`">
-                  L{{ card.level }}
-                </span>
-                <button
+                <span
                   v-if="card.officialSite"
                   class="card-site"
-                  type="button"
+                  role="button"
+                  tabindex="0"
                   @click.stop="openOfficialSite(card.officialSite)"
+                  @keydown.enter.stop.prevent="openOfficialSite(card.officialSite)"
+                  @keydown.space.stop.prevent="openOfficialSite(card.officialSite)"
                 >
                   {{ formatOfficialSite(card.officialSite) }}
-                </button>
+                </span>
               </div>
               <!-- <p class="card-subtitle">{{ card.apiUrl }}</p> -->
               <p
@@ -441,39 +407,6 @@
                 </div>
 
                 <div class="form-field">
-                  <span>{{ t('components.main.form.labels.level') }}</span>
-                  <Listbox v-model="modalState.form.level" v-slot="{ open }">
-                    <div class="level-select">
-                      <ListboxButton class="level-select-button">
-                        <span class="level-badge" :class="`level-${modalState.form.level || 1}`">
-                          L{{ modalState.form.level || 1 }}
-                        </span>
-                        <span class="level-label">
-                          Level {{ modalState.form.level || 1 }} - {{ getLevelDescription(modalState.form.level || 1) }}
-                        </span>
-                        <svg viewBox="0 0 20 20" aria-hidden="true">
-                          <path d="M6 8l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
-                        </svg>
-                      </ListboxButton>
-                      <ListboxOptions v-if="open" class="level-select-options">
-                        <ListboxOption
-                          v-for="lvl in 10"
-                          :key="lvl"
-                          :value="lvl"
-                          v-slot="{ active, selected }"
-                        >
-                          <div :class="['level-option', { active, selected }]">
-                            <span class="level-badge" :class="`level-${lvl}`">L{{ lvl }}</span>
-                            <span class="level-name">Level {{ lvl }} - {{ getLevelDescription(lvl) }}</span>
-                          </div>
-                        </ListboxOption>
-                      </ListboxOptions>
-                    </div>
-                  </Listbox>
-                  <span class="field-hint">{{ t('components.main.form.hints.level') }}</span>
-                </div>
-
-                <div class="form-field">
                   <ModelWhitelistEditor v-model="modalState.form.supportedModels" />
                 </div>
 
@@ -524,6 +457,9 @@
         </BaseButton>
       </footer>
       </BaseModal>
+      <footer v-if="appVersion" class="main-version">
+        {{ t('components.main.versionLabel', { version: appVersion }) }}
+      </footer>
     </div>
   </div>
 </template>
@@ -555,8 +491,6 @@ import { fetchCurrentVersion } from '../../services/version'
 import { fetchAppSettings, type AppSettings } from '../../services/appSettings'
 import { getCurrentTheme, setTheme, type ThemeMode } from '../../utils/ThemeManager'
 import { useRouter } from 'vue-router'
-import { fetchConfigImportStatus, importFromCcSwitch, type ConfigImportStatus } from '../../services/configImport'
-import { showToast } from '../../utils/toast'
 
 const { t, locale } = useI18n()
 const router = useRouter()
@@ -603,28 +537,6 @@ const showHomeTitle = ref(true)
 const mcpIcon = lobeIcons['mcp'] ?? ''
 const appVersion = ref('')
 const hasUpdateAvailable = ref(false)
-const importStatus = ref<ConfigImportStatus | null>(null)
-const importBusy = ref(false)
-
-const showImportButton = computed(() => {
-  const status = importStatus.value
-  if (!status) return false
-  return status.config_exists && (status.pending_providers || status.pending_mcp)
-})
-
-const importButtonTooltip = computed(() => {
-  if (!showImportButton.value) {
-    return t('components.main.controls.import')
-  }
-  const status = importStatus.value
-  if (!status) {
-    return t('components.main.controls.import')
-  }
-  return t('components.main.importConfig.tooltip', {
-    providers: status.pending_provider_count,
-    servers: status.pending_mcp_count,
-  })
-})
 
 const intensityClass = (value: number) => `gh-level-${value}`
 
@@ -902,15 +814,6 @@ const loadProvidersFromDisk = async () => {
   }
 }
 
-const refreshImportStatus = async () => {
-  try {
-    importStatus.value = await fetchConfigImportStatus()
-  } catch (error) {
-    console.error('Failed to load cc-switch import status', error)
-    importStatus.value = null
-  }
-}
-
 const refreshProxyState = async (tab: ProviderTab) => {
   try {
     const status = await fetchProxyStatus(tab)
@@ -948,7 +851,12 @@ const loadProviderStats = async (tab: ProviderTab) => {
     ;(stats ?? []).forEach((stat) => {
       mapped[normalizeProviderKey(stat.provider)] = stat
     })
-    providerStatsMap[tab] = mapped
+    const hadExistingStats = Object.keys(providerStatsMap[tab] ?? {}).length > 0
+    if ((stats?.length ?? 0) > 0) {
+      providerStatsMap[tab] = mapped
+    } else if (!hadExistingStats) {
+      providerStatsMap[tab] = mapped
+    }
     providerStatsLoaded[tab] = true
   } catch (error) {
     console.error(`Failed to load provider stats for ${tab}`, error)
@@ -1067,7 +975,6 @@ onMounted(async () => {
   await Promise.all(providerTabIds.map((tab) => loadProviderStats(tab)))
   await loadAppSettings()
   await checkForUpdates()
-  await refreshImportStatus()
   startProviderStatsTimer()
   startUpdateTimer()
   window.addEventListener('app-settings-updated', handleAppSettingsUpdated)
@@ -1127,7 +1034,6 @@ type VendorForm = {
   enabled: boolean
   supportedModels?: Record<string, boolean>
   modelMapping?: Record<string, string>
-  level?: number
 }
 
 const iconOptions = Object.keys(lobeIcons).sort((a, b) => a.localeCompare(b))
@@ -1139,28 +1045,10 @@ const defaultFormValues = (): VendorForm => ({
   apiKey: '',
   officialSite: '',
   icon: defaultIconKey,
-  level: 1,
   enabled: true,
   supportedModels: {},
   modelMapping: {},
 })
-
-// Level 描述文本映射（1-10）
-const getLevelDescription = (level: number) => {
-  const descriptions: Record<number, string> = {
-    1: t('components.main.levelDesc.highest'),
-    2: t('components.main.levelDesc.high'),
-    3: t('components.main.levelDesc.mediumHigh'),
-    4: t('components.main.levelDesc.medium'),
-    5: t('components.main.levelDesc.normal'),
-    6: t('components.main.levelDesc.mediumLow'),
-    7: t('components.main.levelDesc.low'),
-    8: t('components.main.levelDesc.lower'),
-    9: t('components.main.levelDesc.veryLow'),
-    10: t('components.main.levelDesc.lowest'),
-  }
-  return descriptions[level] || t('components.main.levelDesc.normal')
-}
 
 const modalState = reactive({
   open: false,
@@ -1194,7 +1082,6 @@ const openEditModal = (card: AutomationCard) => {
     apiKey: card.apiKey,
     officialSite: card.officialSite,
     icon: card.icon,
-    level: card.level || 1,
     enabled: card.enabled,
     supportedModels: card.supportedModels || {},
     modelMapping: card.modelMapping || {},
@@ -1235,7 +1122,6 @@ const submitModal = () => {
       apiKey,
       officialSite,
       icon,
-      level: modalState.form.level || 1,
       enabled: modalState.form.enabled,
       supportedModels: modalState.form.supportedModels || {},
       modelMapping: modalState.form.modelMapping || {},
@@ -1251,7 +1137,6 @@ const submitModal = () => {
       icon,
       accent: '#0a84ff',
       tint: 'rgba(15, 23, 42, 0.12)',
-      level: modalState.form.level || 1,
       enabled: modalState.form.enabled,
       supportedModels: modalState.form.supportedModels || {},
       modelMapping: modalState.form.modelMapping || {},
@@ -1337,264 +1222,14 @@ const onTabChange = (idx: number) => {
   }
 }
 
-const handleImportClick = async () => {
-  if (importBusy.value) return
-  importBusy.value = true
-  try {
-    const result = await importFromCcSwitch()
-    importStatus.value = result?.status ?? null
-    const importedProviders = result?.imported_providers ?? 0
-    const importedMCP = result?.imported_mcp ?? 0
-    if (importedProviders > 0) {
-      await loadProvidersFromDisk()
-    }
-    if (importedProviders > 0 || importedMCP > 0) {
-      showToast(
-        t('components.main.importConfig.success', {
-          providers: importedProviders,
-          servers: importedMCP,
-        })
-      )
-    } else if (result?.status?.config_exists) {
-      showToast(t('components.main.importConfig.empty'))
-    }
-  } catch (error) {
-    console.error('Failed to import cc-switch config', error)
-    showToast(t('components.main.importConfig.error'), 'error')
-  } finally {
-    importBusy.value = false
-  }
-}
 </script>
 
 <style scoped>
-.global-actions .ghost-icon svg.rotating {
-  animation: import-spin 0.9s linear infinite;
+.main-version {
+  margin: 32px auto 12px;
+  text-align: center;
+  color: var(--mac-text-secondary);
+  font-size: 0.85rem;
 }
 
-@keyframes import-spin {
-  from {
-    transform: rotate(0deg);
-  }
-
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* Level Badge 样式 */
-.level-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 28px;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0.02em;
-  transition: all 0.2s ease;
-}
-
-/* Card title row badge 定位 */
-.card-title-row .level-badge {
-  margin-left: 8px;
-  margin-right: auto;
-}
-
-/* Level 配色方案：从绿色（高优先级）到红色（低优先级）*/
-.level-badge.level-1 {
-  background: rgba(16, 185, 129, 0.12);
-  color: rgb(5, 150, 105);
-}
-
-.level-badge.level-2 {
-  background: rgba(34, 197, 94, 0.12);
-  color: rgb(22, 163, 74);
-}
-
-.level-badge.level-3 {
-  background: rgba(132, 204, 22, 0.12);
-  color: rgb(101, 163, 13);
-}
-
-.level-badge.level-4 {
-  background: rgba(234, 179, 8, 0.12);
-  color: rgb(161, 98, 7);
-}
-
-.level-badge.level-5 {
-  background: rgba(245, 158, 11, 0.12);
-  color: rgb(180, 83, 9);
-}
-
-.level-badge.level-6 {
-  background: rgba(249, 115, 22, 0.12);
-  color: rgb(194, 65, 12);
-}
-
-.level-badge.level-7 {
-  background: rgba(239, 68, 68, 0.12);
-  color: rgb(185, 28, 28);
-}
-
-.level-badge.level-8 {
-  background: rgba(220, 38, 38, 0.12);
-  color: rgb(153, 27, 27);
-}
-
-.level-badge.level-9 {
-  background: rgba(190, 18, 60, 0.12);
-  color: rgb(136, 19, 55);
-}
-
-.level-badge.level-10 {
-  background: rgba(159, 18, 57, 0.12);
-  color: rgb(112, 26, 52);
-}
-
-/* 暗色模式适配 */
-:global(.dark) .level-badge.level-1 {
-  background: rgba(16, 185, 129, 0.18);
-  color: rgb(52, 211, 153);
-}
-
-:global(.dark) .level-badge.level-2 {
-  background: rgba(34, 197, 94, 0.18);
-  color: rgb(74, 222, 128);
-}
-
-:global(.dark) .level-badge.level-3 {
-  background: rgba(132, 204, 22, 0.18);
-  color: rgb(163, 230, 53);
-}
-
-:global(.dark) .level-badge.level-4 {
-  background: rgba(234, 179, 8, 0.18);
-  color: rgb(250, 204, 21);
-}
-
-:global(.dark) .level-badge.level-5 {
-  background: rgba(245, 158, 11, 0.18);
-  color: rgb(251, 191, 36);
-}
-
-:global(.dark) .level-badge.level-6 {
-  background: rgba(249, 115, 22, 0.18);
-  color: rgb(251, 146, 60);
-}
-
-:global(.dark) .level-badge.level-7 {
-  background: rgba(239, 68, 68, 0.18);
-  color: rgb(248, 113, 113);
-}
-
-:global(.dark) .level-badge.level-8 {
-  background: rgba(220, 38, 38, 0.18);
-  color: rgb(239, 68, 68);
-}
-
-:global(.dark) .level-badge.level-9 {
-  background: rgba(190, 18, 60, 0.18);
-  color: rgb(244, 63, 94);
-}
-
-:global(.dark) .level-badge.level-10 {
-  background: rgba(159, 18, 57, 0.18);
-  color: rgb(236, 72, 153);
-}
-
-/* Level Select Dropdown 样式 */
-.level-select {
-  position: relative;
-}
-
-.level-select-button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 8px 12px;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  font-size: 14px;
-  color: var(--color-text-primary);
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.level-select-button:hover {
-  border-color: var(--color-border-hover);
-  background: var(--color-bg-tertiary);
-}
-
-.level-select-button:focus {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
-}
-
-.level-select-button svg {
-  width: 16px;
-  height: 16px;
-  margin-left: auto;
-  opacity: 0.5;
-}
-
-.level-label {
-  flex: 1;
-  text-align: left;
-}
-
-.level-select-options {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  max-height: 280px;
-  overflow-y: auto;
-  background: var(--mac-surface);
-  border: 1px solid var(--mac-border);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  z-index: 50;
-  padding: 4px;
-}
-
-:global(.dark) .level-select-options {
-  background: var(--mac-surface);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-
-.level-option {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.level-option:hover,
-.level-option.active {
-  background: var(--mac-surface-strong);
-}
-
-.level-option.selected {
-  background: color-mix(in srgb, var(--mac-accent) 12%, transparent);
-  font-weight: 500;
-}
-
-.level-option .level-name {
-  flex: 1;
-  font-size: 14px;
-  color: var(--mac-text);
-}
-
-.level-option.selected .level-name {
-  color: var(--mac-accent);
-}
 </style>

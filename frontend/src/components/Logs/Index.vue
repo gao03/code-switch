@@ -158,6 +158,41 @@ const PAGE_SIZE = 15
 const providerOptions = ref<string[]>([])
 const statsSeries = computed<LogStatsSeries[]>(() => stats.value?.series ?? [])
 
+const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined'
+const readDarkMode = () => (isBrowser ? document.documentElement.classList.contains('dark') : false)
+const isDarkMode = ref(readDarkMode())
+let themeObserver: MutationObserver | null = null
+
+const getCssVarValue = (name: string, fallback: string) => {
+  if (!isBrowser) return fallback
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name)
+  return value?.trim() || fallback
+}
+
+const syncThemeState = () => {
+  isDarkMode.value = readDarkMode()
+}
+
+const setupThemeObserver = () => {
+  if (!isBrowser || themeObserver) return
+  syncThemeState()
+  themeObserver = new MutationObserver((mutations) => {
+    if (mutations.some((mutation) => mutation.attributeName === 'class')) {
+      syncThemeState()
+    }
+  })
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['class'],
+  })
+}
+
+const teardownThemeObserver = () => {
+  if (!themeObserver) return
+  themeObserver.disconnect()
+  themeObserver = null
+}
+
 const parseLogDate = (value?: string) => {
   if (!value) return null
   const normalize = value.replace(' ', 'T')
@@ -238,50 +273,60 @@ const chartData = computed(() => {
   }
 })
 
-const chartOptions: ChartOptions<'line'> = {
-  responsive: true,
-  maintainAspectRatio: false,
-  interaction: {
-    mode: 'index',
-    intersect: false,
-  },
-  plugins: {
-    legend: {
-      labels: {
-        color: '#0f172a',
-        font: {
-          size: 12,
-          weight: 500,
+const chartOptions = computed<ChartOptions<'line'>>(() => {
+  const legendColor = getCssVarValue('--mac-text', isDarkMode.value ? '#f8fafc' : '#0f172a')
+  const axisColor = getCssVarValue(
+    '--mac-text-secondary',
+    isDarkMode.value ? '#cbd5f5' : '#94a3b8',
+  )
+  const axisStrongColor = getCssVarValue('--mac-text', isDarkMode.value ? '#e2e8f0' : '#475569')
+  const gridColor = isDarkMode.value ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.2)'
+
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: {
+      mode: 'index',
+      intersect: false,
+    },
+    plugins: {
+      legend: {
+        labels: {
+          color: legendColor,
+          font: {
+            size: 12,
+            weight: 500,
+          },
         },
       },
     },
-  },
-  scales: {
-    x: {
-      grid: { display: false },
-      ticks: { color: '#94a3b8' },
-    },
-    y: {
-      beginAtZero: true,
-      ticks: { color: '#94a3b8' },
-      grid: { color: 'rgba(148, 163, 184, 0.2)' },
-    },
-    yCost: {
-      position: 'right',
-      beginAtZero: true,
-      grid: { drawOnChartArea: false },
-      ticks: {
-        color: '#475569',
-        callback: (value: string | number) => {
-          const numeric = typeof value === 'number' ? value : Number(value)
-          if (Number.isNaN(numeric)) return '$0'
-          if (numeric >= 1) return `$${numeric.toFixed(2)}`
-          return `$${numeric.toFixed(4)}`
+    scales: {
+      x: {
+        grid: { display: false },
+        ticks: { color: axisColor },
+      },
+      y: {
+        beginAtZero: true,
+        ticks: { color: axisColor },
+        grid: { color: gridColor },
+      },
+      yCost: {
+        position: 'right',
+        beginAtZero: true,
+        grid: { drawOnChartArea: false },
+        ticks: {
+          color: axisStrongColor,
+          callback: (value: string | number) => {
+            const numeric = typeof value === 'number' ? value : Number(value)
+            if (Number.isNaN(numeric)) return '$0'
+            if (numeric >= 1) return `$${numeric.toFixed(2)}`
+            return `$${numeric.toFixed(4)}`
+          },
         },
       },
     },
-  },
-}
+  }
+})
 const formatSeriesLabel = (value?: string) => {
   if (!value) return ''
   const parsed = parseLogDate(value)
@@ -509,10 +554,12 @@ watch(
 onMounted(async () => {
   await Promise.all([loadDashboard(), loadProviderOptions()])
   startCountdown()
+  setupThemeObserver()
 })
 
 onUnmounted(() => {
   stopCountdown()
+  teardownThemeObserver()
 })
 </script>
 

@@ -19,36 +19,33 @@ if [ ! -f "$NOTES" ]; then
   exit 1
 fi
 
-MAC_APP_PRIMARY="bin/codeswitch.app"
-MAC_APP_ALT="bin/CodeSwitch.app"
+MAC_APP_PRIMARY="bin/CodeSwitch.app"
 MAC_ARCHS=("arm64" "amd64")
 MAC_ZIPS=()
 
 package_macos_arch() {
   local arch="$1"
-  local staging_app="bin/codeswitch-${arch}.app"
-  local zip_path="bin/codeswitch-macos-${arch}.zip"
+  local staging_dir="bin/package-${arch}"
+  local staging_app="${staging_dir}/CodeSwitch.app"
+  local zip_path="bin/CodeSwitch-macos-${arch}.zip"
 
   echo "==> Building macOS ${arch}"
   env ARCH="$arch" wails3 task package ${BUILD_OPTS:-}
 
   local bundle_path="$MAC_APP_PRIMARY"
-  if [ ! -d "$bundle_path" ] && [ -d "$MAC_APP_ALT" ]; then
-    bundle_path="$MAC_APP_ALT"
-  fi
-
   if [ ! -d "$bundle_path" ]; then
-    echo "Missing asset: $MAC_APP_PRIMARY (or $MAC_APP_ALT)" >&2
+    echo "Missing asset: $MAC_APP_PRIMARY" >&2
     exit 1
   fi
 
-  rm -rf "$staging_app"
-  mv "$bundle_path" "$staging_app"
+  rm -rf "$staging_dir"
+  mkdir -p "$staging_dir"
+  cp -R "$bundle_path" "$staging_app"
 
   echo "==> Archiving macOS app bundle (${arch})"
   rm -f "$zip_path"
   ditto -c -k --sequesterRsrc --keepParent "$staging_app" "$zip_path"
-  rm -rf "$staging_app"
+  rm -rf "$staging_dir"
 
   MAC_ZIPS+=("$zip_path")
 }
@@ -73,6 +70,6 @@ for asset in "${ASSETS[@]}"; do
   echo "  asset: $asset"
 done
 
-gh release create "$TAG" "${ASSETS[@]}" \
-  --title "$TAG" \
-  --notes-file "$NOTES"
+# gh release create "$TAG" "${ASSETS[@]}" \
+#   --title "$TAG" \
+#   --notes-file "$NOTES"
