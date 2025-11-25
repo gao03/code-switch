@@ -4,18 +4,38 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 //go:embed model_prices_and_context_window.json
 var pricingFile []byte
+
+const (
+	// 第三方价格数据源URL
+	remotePricingURL = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
+	// 更新间隔：24小时
+	updateInterval = 24 * time.Hour
+	// 本地缓存文件名
+	cacheFileName = "model_prices_and_context_window.json"
+)
 
 var (
 	defaultOnce    sync.Once
 	defaultService *Service
 	defaultErr     error
 	nameReplacer   = strings.NewReplacer("-", "", "_", "", ".", "", ":", "", "/", "", " ", "")
+	// 用于动态更新的互斥锁
+	updateMutex sync.RWMutex
+	// 最后更新时间
+	lastUpdateTime time.Time
+	// 更新定时器
+	updateTimer *time.Timer
 )
 
 // Service 提供模型价格相关的计算能力。
@@ -73,19 +93,53 @@ type LongContextPricing struct {
 	Output float64
 }
 
-// DefaultService 返回单例。
+// DefaultService 返回单例，支持动态更新。
 func DefaultService() (*Service, error) {
 	defaultOnce.Do(func() {
-		defaultService, defaultErr = NewService()
+		defaultService, defaultErr = NewServiceWithDynamicUpdate()
+		if defaultErr == nil {
+			// 启动定时更新
+			startPeriodicUpdate()
+		}
 	})
+	updateMutex.RLock()
+	defer updateMutex.RUnlock()
 	return defaultService, defaultErr
 }
 
 // NewService 从嵌入的 JSON 创建服务实例。
 func NewService() (*Service, error) {
+	return NewServiceFromData(pricingFile)
+}
+
+// NewServiceWithDynamicUpdate 创建支持动态更新的服务实例。
+func NewServiceWithDynamicUpdate() (*Service, error) {
+	// 尝试从缓存加载
+	data, err := loadFromCache()
+	if err != nil {
+		// 缓存失败，尝试从远程拉取
+		data, err = fetchRemotePricing()
+		if err != nil {
+			// 远程拉取失败，使用嵌入的数据
+			fmt.Printf("警告：无法获取最新价格数据，使用内置数据: %v\n", err)
+			data = pricingFile
+		} else {
+			// 远程拉取成功，保存到缓存
+			if saveErr := saveToCache(data); saveErr != nil {
+				fmt.Printf("警告：保存价格数据到缓存失败: %v\n", saveErr)
+			}
+			lastUpdateTime = time.Now()
+		}
+	}
+
+	return NewServiceFromData(data)
+}
+
+// NewServiceFromData 从指定的 JSON 数据创建服务实例。
+func NewServiceFromData(data []byte) (*Service, error) {
 	raw := make(map[string]PricingEntry)
-	if err := json.Unmarshal(pricingFile, &raw); err != nil {
-		return nil, fmt.Errorf("parse pricing file: %w", err)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("解析价格数据失败: %w", err)
 	}
 	pricing := make(map[string]*PricingEntry, len(raw))
 	normalized := make(map[string]string, len(raw))
@@ -255,6 +309,7 @@ func buildEphemeral1hPricing() map[string]float64 {
 		"claude-opus-4-1-20250805":   0.00003,
 		"claude-opus-4":              0.00003,
 		"claude-opus-4-20250514":     0.00003,
+		"claude-opus-4-5-20251101":   0.00003, // 新增 opus 4.5 支持
 		"claude-3-opus":              0.00003,
 		"claude-3-opus-latest":       0.00003,
 		"claude-3-opus-20240229":     0.00003,
@@ -285,5 +340,174 @@ func buildLongContextPricing() map[string]LongContextPricing {
 			Input:  0.000006,
 			Output: 0.0000225,
 		},
+	}
+}
+
+// 动态更新相关函数
+
+// fetchRemotePricing 从远程URL获取价格数据。
+func fetchRemotePricing() ([]byte, error) {
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	resp, err := client.Get(remotePricingURL)
+	if err != nil {
+		return nil, fmt.Errorf("请求远程价格数据失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("远程服务器返回错误状态: %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取响应数据失败: %w", err)
+	}
+
+	// 验证JSON格式
+	var test map[string]interface{}
+	if err := json.Unmarshal(data, &test); err != nil {
+		return nil, fmt.Errorf("远程数据格式无效: %w", err)
+	}
+
+	return data, nil
+}
+
+// getCacheFilePath 获取缓存文件的完整路径。
+func getCacheFilePath() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("获取用户主目录失败: %w", err)
+	}
+
+	cacheDir := filepath.Join(homeDir, ".cache")
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return "", fmt.Errorf("创建缓存目录失败: %w", err)
+	}
+
+	return filepath.Join(cacheDir, cacheFileName), nil
+}
+
+// saveToCache 将价格数据保存到本地缓存。
+func saveToCache(data []byte) error {
+	cachePath, err := getCacheFilePath()
+	if err != nil {
+		return err
+	}
+
+	// 创建带时间戳的缓存数据
+	cacheData := map[string]interface{}{
+		"timestamp": time.Now().Unix(),
+		"data":      json.RawMessage(data),
+	}
+
+	cacheBytes, err := json.Marshal(cacheData)
+	if err != nil {
+		return fmt.Errorf("序列化缓存数据失败: %w", err)
+	}
+
+	if err := os.WriteFile(cachePath, cacheBytes, 0644); err != nil {
+		return fmt.Errorf("写入缓存文件失败: %w", err)
+	}
+
+	return nil
+}
+
+// loadFromCache 从本地缓存加载价格数据。
+func loadFromCache() ([]byte, error) {
+	cachePath, err := getCacheFilePath()
+	if err != nil {
+		return nil, err
+	}
+
+	// 检查文件是否存在
+	if _, err := os.Stat(cachePath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("缓存文件不存在")
+	}
+
+	cacheBytes, err := os.ReadFile(cachePath)
+	if err != nil {
+		return nil, fmt.Errorf("读取缓存文件失败: %w", err)
+	}
+
+	var cacheData struct {
+		Timestamp int64           `json:"timestamp"`
+		Data      json.RawMessage `json:"data"`
+	}
+
+	if err := json.Unmarshal(cacheBytes, &cacheData); err != nil {
+		return nil, fmt.Errorf("解析缓存数据失败: %w", err)
+	}
+
+	// 检查缓存是否过期（超过24小时）
+	cacheTime := time.Unix(cacheData.Timestamp, 0)
+	if time.Since(cacheTime) > updateInterval {
+		return nil, fmt.Errorf("缓存已过期")
+	}
+
+	lastUpdateTime = cacheTime
+	return cacheData.Data, nil
+}
+
+// startPeriodicUpdate 启动定时更新机制。
+func startPeriodicUpdate() {
+	// 计算下次更新时间
+	nextUpdate := updateInterval
+	if !lastUpdateTime.IsZero() {
+		elapsed := time.Since(lastUpdateTime)
+		if elapsed < updateInterval {
+			nextUpdate = updateInterval - elapsed
+		} else {
+			nextUpdate = time.Minute // 立即更新
+		}
+	}
+
+	updateTimer = time.AfterFunc(nextUpdate, func() {
+		updatePricingData()
+		// 设置下一次更新
+		updateTimer = time.AfterFunc(updateInterval, func() {
+			updatePricingData()
+		})
+	})
+}
+
+// updatePricingData 更新价格数据。
+func updatePricingData() {
+	fmt.Println("开始更新模型价格数据...")
+
+	data, err := fetchRemotePricing()
+	if err != nil {
+		fmt.Printf("更新价格数据失败: %v\n", err)
+		return
+	}
+
+	// 创建新的服务实例
+	newService, err := NewServiceFromData(data)
+	if err != nil {
+		fmt.Printf("创建新服务实例失败: %v\n", err)
+		return
+	}
+
+	// 原子性更新
+	updateMutex.Lock()
+	defaultService = newService
+	lastUpdateTime = time.Now()
+	updateMutex.Unlock()
+
+	// 保存到缓存
+	if err := saveToCache(data); err != nil {
+		fmt.Printf("保存价格数据到缓存失败: %v\n", err)
+	}
+
+	fmt.Println("模型价格数据更新完成")
+}
+
+// StopPeriodicUpdate 停止定时更新（用于测试或优雅关闭）。
+func StopPeriodicUpdate() {
+	if updateTimer != nil {
+		updateTimer.Stop()
+		updateTimer = nil
 	}
 }
