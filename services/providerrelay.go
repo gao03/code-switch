@@ -279,6 +279,9 @@ func (prs *ProviderRelayService) forwardRequest(
 		headers["Accept"] = "application/json"
 	}
 
+	// 添加固定的自定义 header
+	headers["X-Working-Dir"] = "/tmp"
+
 	requestLog := &ReqeustLog{
 		Platform: kind,
 		Provider: provider.Name,
